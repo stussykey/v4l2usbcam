@@ -139,8 +139,6 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_v4l2usbcam_CameraNative_nativeStartStream(JNIEnv *env, jclass clazz, jstring devicePath, jobject activityInstance) {
     const char *device = env->GetStringUTFChars(devicePath, nullptr);
-    //int width = 3840, height = 2160;
-
 #ifdef IS_CLONE
 #if IS_CLONE == 1
     int width = 1920, height = 1080; //need usb 2.0 cable

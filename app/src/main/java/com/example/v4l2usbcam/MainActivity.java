@@ -143,6 +143,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 buttonAutoFraming.setText("Auto Framing Disable");
                 buttonAutoFraming.setBackgroundColor(Color.RED);
                 buttonAutoFraming.setTextColor(Color.WHITE);
+                disableAutoFraming();
                 //
 
                 usbXuEnable();
