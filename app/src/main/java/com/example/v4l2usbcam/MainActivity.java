@@ -2,22 +2,20 @@ package com.example.v4l2usbcam;
 import com.example.v4l2usbcam.BuildConfig;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.media.MediaPlayer;
 import android.media.AudioManager;
 import android.media.AudioDeviceInfo;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-
-import java.util.HashMap;
 import android.content.Context;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
@@ -31,10 +29,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.Queue;
-import android.os.Handler;
-import android.os.Looper;
-
-import android.content.res.Resources;
+import java.util.HashMap;
 
 
 public class MainActivity extends AppCompatActivity implements SurfaceHolder.Callback {
@@ -50,14 +45,17 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     private int frameCount = 0;
     private ImageView[] faceViews;
     private final List<TrackedFace> trackedFaces = new ArrayList<>();
-    private final int FACE_AREA_THRESHOLD = 10000; //100x100
-    private final int FACE_UPDATE_INTERVAL = 10;
+    private final int FACE_AREA_THRESHOLD = 10000; // 100x100
     private final long FACE_HOLD_DURATION_MS = 3000;
     private final List<PendingFace> pendingFaces = new ArrayList<>();
     private final int PENDING_CONFIRM_FRAMES = 10; // 連續 3 幀出現
     private final long PENDING_MAX_TIME_MS = 2000; // 最多等 2 秒
+    private Thread frameWorkerThread;
+    private volatile boolean frameWorkerRunning = false;
     private final Queue<byte[]> frameQueue = new LinkedList<>();
     private final Object queueLock = new Object();
+    private Bitmap reusableBitmap = null;
+    private ByteBuffer reusableBuffer = null;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean smartGalleryEnabled = false; // smartGallery功能開關
     private boolean autoFramingEnabled = false; // autoFraming功能開關
@@ -76,13 +74,14 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             mediaPlayer.release();
         }
         mediaPlayer = MediaPlayer.create(this, songResIds[currentSongIndex]);
-        mediaPlayer.setLooping(false); // ❗️ 不要重複播放，用自動跳下一首
+        mediaPlayer.setLooping(false); // 不要重複播放，用自動跳下一首
 
         mediaPlayer.setOnCompletionListener(mp -> {
             currentSongIndex = (currentSongIndex + 1) % songResIds.length;
             initMediaPlayer();
             mediaPlayer.start();
-            textTitle.setText("♪ " + songTitles[currentSongIndex]);
+            //textTitle.setText("♪ " + songTitles[currentSongIndex]);
+            textTitle.setText(getString(R.string.songTitleFormat, songTitles[currentSongIndex]));
         });
 
         // MediaPlayer 建立後強制設定播放裝置
@@ -127,20 +126,20 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         Button buttonAutoFraming = findViewById(R.id.buttonOther);
 
         // buttonSmartGallery 按鈕預設樣式
-        buttonSmartGallery.setText("Smart Gallery Disable");
+        buttonSmartGallery.setText(getString(R.string.smartGalleryDisable));
         buttonSmartGallery.setBackgroundColor(Color.RED);
         buttonSmartGallery.setOnClickListener(v -> {
             smartGalleryEnabled = !smartGalleryEnabled;
 
             if (smartGalleryEnabled) {
-                buttonSmartGallery.setText("Smart Gallery Enable");
+                buttonSmartGallery.setText(getString(R.string.smartGalleryEnable));
                 buttonSmartGallery.setBackgroundColor(Color.GREEN);
                 buttonSmartGallery.setTextColor(Color.BLACK);
                 Log.e("BTN_DBG", "Smart Gallery Enable");
 
-                // Disble Auto Framing function
+                // Disable Auto Framing function
                 autoFramingEnabled = false;
-                buttonAutoFraming.setText("Auto Framing Disable");
+                buttonAutoFraming.setText(getString(R.string.autoFramingDisable));
                 buttonAutoFraming.setBackgroundColor(Color.RED);
                 buttonAutoFraming.setTextColor(Color.WHITE);
                 disableAutoFraming();
@@ -148,7 +147,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
                 usbXuEnable();
             } else {
-                buttonSmartGallery.setText("Smart Gallery Disable");
+                buttonSmartGallery.setText(getString(R.string.smartGalleryDisable));
                 buttonSmartGallery.setBackgroundColor(Color.RED);
                 buttonSmartGallery.setTextColor(Color.WHITE);
                 // 同時清空人臉畫面
@@ -162,21 +161,21 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         });
 
         // buttonAutoFraming 按鈕預設樣式
-        buttonAutoFraming.setText("Auto Framing Disable");
+        buttonAutoFraming.setText(getString(R.string.autoFramingDisable));
         buttonAutoFraming.setBackgroundColor(Color.RED);
         buttonAutoFraming.setOnClickListener(v -> {
             autoFramingEnabled = !autoFramingEnabled;
 
             if (autoFramingEnabled) {
-                buttonAutoFraming.setText("Auto Framing Enable");
+                buttonAutoFraming.setText(getString(R.string.autoFramingEnable));
                 buttonAutoFraming.setBackgroundColor(Color.GREEN);
                 buttonAutoFraming.setTextColor(Color.BLACK);
                 enableAutoFraming();
                 Log.e("BTN_DBG", "Auto Framing Enable");
 
-                // Disble Smart Gallery function
+                // Disable Smart Gallery function
                 smartGalleryEnabled = false;
-                buttonSmartGallery.setText("Smart Gallery Disable");
+                buttonSmartGallery.setText(getString(R.string.smartGalleryDisable));
                 buttonSmartGallery.setBackgroundColor(Color.RED);
                 buttonSmartGallery.setTextColor(Color.WHITE);
                 for (ImageView view : faceViews) {
@@ -184,7 +183,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 }
                 //
             } else {
-                buttonAutoFraming.setText("Auto Framing Disable");
+                buttonAutoFraming.setText(getString(R.string.autoFramingDisable));
                 buttonAutoFraming.setBackgroundColor(Color.RED);
                 buttonAutoFraming.setTextColor(Color.WHITE);
                 disableAutoFraming();
@@ -206,11 +205,12 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         btnPlay.setOnClickListener(v -> {
             if (mediaPlayer.isPlaying()) {
                 mediaPlayer.pause();
-                btnPlay.setText("PLAY");
+                btnPlay.setText(getString(R.string.play));
             } else {
                 mediaPlayer.start();
-                btnPlay.setText("PAUSE");
-                textTitle.setText("♪ " + songTitles[currentSongIndex]);
+                btnPlay.setText(getString(R.string.pause));
+                //textTitle.setText("♪ " + songTitles[currentSongIndex]);
+                textTitle.setText(getString(R.string.songTitleFormat, songTitles[currentSongIndex]));
             }
         });
 
@@ -218,16 +218,18 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             currentSongIndex = (currentSongIndex + 1) % songResIds.length;
             initMediaPlayer();
             mediaPlayer.start();
-            btnPlay.setText("PAUSE");
-            textTitle.setText("♪ " + songTitles[currentSongIndex]);
+            btnPlay.setText(getString(R.string.pause));
+            //textTitle.setText("♪ " + songTitles[currentSongIndex]);
+            textTitle.setText(getString(R.string.songTitleFormat, songTitles[currentSongIndex]));
         });
 
         btnPrev.setOnClickListener(v -> {
             currentSongIndex = (currentSongIndex - 1 + songResIds.length) % songResIds.length;
             initMediaPlayer();
             mediaPlayer.start();
-            btnPlay.setText("PAUSE");
-            textTitle.setText("♪ " + songTitles[currentSongIndex]);
+            btnPlay.setText(getString(R.string.pause));
+            //textTitle.setText("♪ " + songTitles[currentSongIndex]);
+            textTitle.setText(getString(R.string.songTitleFormat, songTitles[currentSongIndex]));
         });
 
         AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -244,6 +246,25 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC,
                     AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI);
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        usbXuDisable();
+        stopFrameWorker();
+
+        if (reusableBitmap != null) {
+            reusableBitmap.recycle();
+            reusableBitmap = null;
+        }
+        reusableBuffer = null;
+
+        // Release MediaPlayer
+        if (mediaPlayer != null) {
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
     }
 
     public void findUsbDevice() {
@@ -270,14 +291,6 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         } else {
             Log.e("USB_DBG", "No USB camera found");
         }
-    }
-
-    @Override
-    public void surfaceCreated(@NonNull SurfaceHolder holder) {
-        findUsbDevice();
-        usbXuEnable();
-        new Thread(() -> CameraNative.nativeStartStream(devicePath, this)).start(); // 原本 JNI 呼叫
-        startFrameWorker();
     }
 
     public void requestUsbPermission(Context context, UsbManager usbManager, UsbDevice device) {
@@ -332,7 +345,6 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 int height = ((getFaceInfo[6] & 0xFF) << 8) | (getFaceInfo[7] & 0xFF);
 
                 faceRects.add(new int[]{x, y, width, height});
-
                 //Log.i("GetFaceInfo", String.format("Face %d: x=%d, y=%d, width=%d, height=%d", i, x, y, width, height));
             } else {
                 Log.w("GetFaceInfo", "getFaceInfo 資料不足或為 null");
@@ -503,7 +515,13 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         pendingFaces.removeIf(pf -> now - pf.firstSeenTime > PENDING_MAX_TIME_MS);
     }
 
-
+    @Override
+    public void surfaceCreated(@NonNull SurfaceHolder holder) {
+        findUsbDevice();
+        usbXuEnable();
+        new Thread(() -> CameraNative.nativeStartStream(devicePath, this)).start(); // 原本 JNI 呼叫
+        startFrameWorker();
+    }
 
     @Override
     public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {}
@@ -511,7 +529,21 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     @Override
     public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
         usbXuDisable();
-        Log.e("GetFaceInfo", "Close app");
+        stopFrameWorker();
+
+        if (reusableBitmap != null) {
+            reusableBitmap.recycle();
+            reusableBitmap = null;
+        }
+        reusableBuffer = null;
+
+        // Release MediaPlayer
+        if (mediaPlayer != null) {
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
+
+        Log.e("GetFaceInfo", "Surface destroyed, resources released.");
     }
 
     public void usbXuEnable() {
@@ -629,23 +661,33 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
-
     private void startFrameWorker() {
-        new Thread(() -> {
-            while (true) {
-                byte[] frame = null;
+        int bitmapSize = width * height * 4; // ARGB_8888
+        reusableBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        reusableBuffer = ByteBuffer.allocateDirect(bitmapSize);
+
+        frameWorkerRunning = true;
+        frameWorkerThread = new Thread(() -> {
+            while (frameWorkerRunning) {
+                byte[] frame;
                 synchronized (queueLock) {
-                    if (!frameQueue.isEmpty()) {
-                        frame = frameQueue.poll();
+                    while (frameQueue.isEmpty()) {
+                        try {
+                            queueLock.wait();
+                        } catch (InterruptedException e) {
+                            return;
+                        }
                     }
+                    frame = frameQueue.poll();
                 }
 
                 if (frame != null) {
-                    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                    //Bitmap bitmap = Bitmap.createBitmap(3840, 2160, Bitmap.Config.ARGB_8888);
+                    reusableBuffer.clear();
+                    reusableBuffer.put(frame);
+                    reusableBuffer.rewind();
 
                     try {
-                        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(frame));
+                        reusableBitmap.copyPixelsFromBuffer(reusableBuffer);
                     } catch (Exception e) {
                         continue;
                     }
@@ -658,26 +700,36 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
                     frameCount++;
 
-                    Bitmap finalBitmap = bitmap;
+                    //Bitmap bitmapToDraw = Bitmap.createBitmap(reusableBitmap);
                     uiHandler.post(() -> {
-                        drawToSurfaceView(finalBitmap);     // 畫左側主畫面
-                        showTrackedFaces(finalBitmap);     //  更新右側人臉小畫面
+                        drawToSurfaceView(reusableBitmap);     // 畫左側主畫面
+                        showTrackedFaces(reusableBitmap);     //  更新右側人臉小畫面
                     });
                 }
-
-                try {
-                    Thread.sleep(5); // 控制節奏，減少過度忙碌
-                } catch (InterruptedException e) {
-                    break;
-                }
             }
-        }).start();
+        });
+
+        frameWorkerThread.start();
+    }
+
+    private void stopFrameWorker() {
+        frameWorkerRunning = false;
+        if (frameWorkerThread != null && frameWorkerThread.isAlive()) {
+            frameWorkerThread.interrupt();  // 強制喚醒 Thread.sleep
+            try {
+                frameWorkerThread.join();   // 等待執行緒完全結束
+            } catch (InterruptedException e) {
+                Log.e("FrameWorker", "Thread interrupted", e);
+            }
+            frameWorkerThread = null;
+        }
     }
 
     public void drawFrame(byte[] rgbData) {
         synchronized (queueLock) {
             if (frameQueue.size() < 2) { // 限制 queue 長度避免佔太多記憶體
                 frameQueue.offer(rgbData.clone());
+                queueLock.notify();
             }
         }
     }

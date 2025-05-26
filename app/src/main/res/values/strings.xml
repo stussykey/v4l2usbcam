@@ -1,3 +1,10 @@
 <resources>
     <!-- <string name="app_name">SoundBar FHD</string> -->
+    <string name="autoFramingDisable">Auto Framing Disable</string>
+    <string name="autoFramingEnable">Auto Framing Enable</string>
+    <string name="smartGalleryDisable">Smart Gallery Disable</string>
+    <string name="smartGalleryEnable">Smart Gallery Enable</string>
+    <string name="play">PLAY</string>
+    <string name="pause">PAUSE</string>
+    <string name="songTitleFormat">♪ %1$s</string>
 </resources>

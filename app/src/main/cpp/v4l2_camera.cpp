@@ -18,8 +18,6 @@
 #define UVC_SET_CUR 0x01
 #define UVC_GET_CUR 0x81
 
-
-
 void logFlavor() {
 #ifdef IS_CLONE
 #if IS_CLONE == 1
